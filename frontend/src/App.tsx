@@ -619,19 +619,17 @@ const App = () => {
                       </div>
                     )}
                     <div className="mt-0.5 truncate text-[10px] text-slate-400">{acc.email}</div>
-                    <div
-                      className="mt-2 flex min-h-6 flex-wrap items-center gap-1.5"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openTagModal(acc);
-                      }}
-                    >
+                    <div className="mt-2 flex min-h-6 flex-wrap items-center gap-1.5">
                       {(() => {
                         const { visible, hiddenCount } = getPreviewTags(acc.tags || []);
 
                         if (visible.length === 0) {
                           return (
                             <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTagModal(acc);
+                              }}
                               className="rounded-full border border-dashed border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-400 transition-all hover:border-blue-200 hover:text-blue-600"
                             >
                               + 添加标签
@@ -655,6 +653,10 @@ const App = () => {
                               </span>
                             ) : null}
                             <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openTagModal(acc);
+                              }}
                               className="rounded-full border border-dashed border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-400 transition-all hover:border-blue-200 hover:text-blue-600"
                             >
                               + 标签
