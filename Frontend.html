@@ -1,0 +1,581 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { 
+  Mail, 
+  Settings, 
+  Plus, 
+  RefreshCw, 
+  Power, 
+  Trash2, 
+  ChevronRight, 
+  Inbox, 
+  Send, 
+  AlertCircle, 
+  CheckCircle2,
+  Clock,
+  User,
+  LayoutDashboard,
+  LogOut,
+  Search,
+  MoreVertical,
+  Edit2,
+  StickyNote,
+  Save,
+  X
+} from 'lucide-react';
+
+const App = () => {
+  // --- Initial Mock Data ---
+  const initialAccounts = [
+    {
+      id: 'mock-1',
+      email: 'work-demo@outlook.com',
+      displayName: '主要工作邮箱',
+      note: '包含重要客户的 IMAP 抓取任务',
+      password: 'password123',
+      clientId: 'client_id_001',
+      refreshToken: 'refresh_token_xyz_789',
+      status: 'online',
+      autoRefresh: true,
+      lastSync: new Date().toLocaleTimeString(),
+      mails: generateMockMails('work-demo@outlook.com')
+    },
+    {
+      id: 'mock-2',
+      email: 'backup-test@outlook.com',
+      displayName: '备用测试库',
+      note: '用于测试大批量邮件同步稳定性',
+      password: 'password456',
+      clientId: 'client_id_002',
+      refreshToken: 'refresh_token_abc_123',
+      status: 'online',
+      autoRefresh: false,
+      lastSync: '尚未同步',
+      mails: generateMockMails('backup-test@outlook.com')
+    }
+  ];
+
+  // --- State ---
+  const [accounts, setAccounts] = useState(initialAccounts);
+  const [activeAccountId, setActiveAccountId] = useState(initialAccounts[0].id);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [bulkInput, setBulkInput] = useState("");
+  const [selectedMail, setSelectedMail] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Note Modal State
+  const [noteModalAccount, setNoteModalAccount] = useState(null);
+  const [editingNameId, setEditingNameId] = useState(null);
+  const [tempName, setTempName] = useState("");
+
+  // --- Derived State ---
+  const activeAccount = accounts.find(a => a.id === activeAccountId);
+  const filteredMails = activeAccount?.mails.filter(m => 
+    m.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    m.from.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
+
+  // --- Actions ---
+  
+  // 批量添加账号
+  const handleAddAccounts = () => {
+    const lines = bulkInput.split('\n').filter(line => line.trim() !== "");
+    const newAccounts = lines.map(line => {
+      const [email, password, clientId, refreshToken] = line.split('----');
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        email: email?.trim(),
+        displayName: email?.trim(), // 默认显示名称为邮箱
+        note: "",
+        password: password?.trim(),
+        clientId: clientId?.trim(),
+        refreshToken: refreshToken?.trim(),
+        status: 'online',
+        autoRefresh: false,
+        lastSync: '等待同步',
+        mails: generateMockMails(email)
+      };
+    }).filter(acc => acc.email);
+
+    setAccounts([...accounts, ...newAccounts]);
+    if (!activeAccountId && newAccounts.length > 0) setActiveAccountId(newAccounts[0].id);
+    setBulkInput("");
+    setShowAddModal(false);
+  };
+
+  const deleteAccount = (id) => {
+    setAccounts(accounts.filter(a => a.id !== id));
+    if (activeAccountId === id) setActiveAccountId(null);
+  };
+
+  const toggleAutoRefresh = (id) => {
+    setAccounts(accounts.map(acc => 
+      acc.id === id ? { ...acc, autoRefresh: !acc.autoRefresh } : acc
+    ));
+  };
+
+  const startEditingName = (acc) => {
+    setEditingNameId(acc.id);
+    setTempName(acc.displayName);
+  };
+
+  const saveName = (id) => {
+    setAccounts(accounts.map(acc => 
+      acc.id === id ? { ...acc, displayName: tempName || acc.email } : acc
+    ));
+    setEditingNameId(null);
+  };
+
+  const updateNote = (id, newNote) => {
+    setAccounts(accounts.map(acc => 
+      acc.id === id ? { ...acc, note: newNote } : acc
+    ));
+    setNoteModalAccount(null);
+  };
+
+  // 模拟抓取邮件
+  const fetchMails = useCallback((accountId) => {
+    setAccounts(prev => prev.map(acc => {
+      if (acc.id === accountId) {
+        return {
+          ...acc,
+          lastSync: new Date().toLocaleTimeString(),
+          mails: [createMockMail(acc.email), ...acc.mails].slice(0, 50)
+        };
+      }
+      return acc;
+    }));
+  }, []);
+
+  // 自动刷新逻辑
+  useEffect(() => {
+    const intervals = accounts.map(acc => {
+      if (acc.autoRefresh) {
+        return setInterval(() => fetchMails(acc.id), 15000); 
+      }
+      return null;
+    });
+
+    return () => intervals.forEach(i => i && clearInterval(i));
+  }, [accounts, fetchMails]);
+
+  return (
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      
+      {/* --- Sidebar: Account List --- */}
+      <aside className="w-80 bg-white border-r border-slate-200 flex flex-col shrink-0 shadow-sm">
+        <div className="p-6 flex items-center justify-between">
+          <h1 className="text-xl font-bold text-blue-600 flex items-center gap-2">
+            <Mail size={24} /> Outlook IMAP
+          </h1>
+        </div>
+
+        <div className="px-4 mb-4">
+          <button 
+            onClick={() => setShowAddModal(true)}
+            className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl flex items-center justify-center gap-2 transition-all shadow-md font-semibold text-sm"
+          >
+            <Plus size={18} /> 添加邮箱
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 space-y-2 pb-4">
+          {accounts.length === 0 ? (
+            <div className="text-center py-12 px-4">
+              <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                 <Mail className="text-slate-300" size={24} />
+              </div>
+              <p className="text-slate-400 text-sm">暂无邮箱，请先添加</p>
+            </div>
+          ) : (
+            accounts.map(acc => (
+              <div 
+                key={acc.id}
+                onClick={() => setActiveAccountId(acc.id)}
+                className={`group flex flex-col p-3.5 rounded-xl cursor-pointer transition-all border ${
+                  activeAccountId === acc.id 
+                    ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                    : 'bg-transparent border-transparent hover:bg-slate-50 hover:border-slate-100'
+                }`}
+              >
+                <div className="flex items-start justify-between mb-1.5">
+                  <div className="flex-1 min-w-0 pr-2">
+                    {editingNameId === acc.id ? (
+                      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <input 
+                          autoFocus
+                          className="w-full text-sm font-bold border-b border-blue-400 bg-transparent outline-none py-0.5"
+                          value={tempName}
+                          onChange={(e) => setTempName(e.target.value)}
+                          onBlur={() => saveName(acc.id)}
+                          onKeyDown={(e) => e.key === 'Enter' && saveName(acc.id)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-sm font-bold truncate ${activeAccountId === acc.id ? 'text-blue-700' : 'text-slate-700'}`}>
+                          {acc.displayName || acc.email}
+                        </span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); startEditingName(acc); }}
+                          className="p-1 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 transition-all"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                      </div>
+                    )}
+                    <div className="text-[10px] text-slate-400 truncate mt-0.5">{acc.email}</div>
+                  </div>
+                  
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setNoteModalAccount(acc); }}
+                      className={`p-1.5 rounded-lg transition-colors ${acc.note ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500'}`}
+                      title="备注"
+                    >
+                      <StickyNote size={15} fill={acc.note ? "currentColor" : "none"} fillOpacity={0.1} />
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); deleteAccount(acc.id); }}
+                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100/50 mt-1">
+                  <div className="flex items-center gap-1 text-slate-500">
+                    <div className={`w-1.5 h-1.5 rounded-full ${acc.autoRefresh ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                    <span className={acc.autoRefresh ? 'text-green-600 font-medium' : ''}>
+                      {acc.autoRefresh ? '正在刷新' : '手动模式'}
+                    </span>
+                  </div>
+                  <span className="text-slate-400 flex items-center gap-1">
+                    <Clock size={10} /> {acc.lastSync.split(' ')[0]}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+          <div className="flex items-center gap-3 text-slate-500 px-2 py-2 cursor-pointer hover:text-slate-800 transition-colors">
+            <Settings size={18} />
+            <span className="text-sm font-medium">系统配置</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* --- Main Content --- */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {!activeAccount ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-white">
+            <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center mb-6">
+               <LayoutDashboard size={40} strokeWidth={1} className="text-slate-200" />
+            </div>
+            <h3 className="text-lg font-medium text-slate-600">欢迎使用邮件管理系统</h3>
+            <p className="text-sm">请在左侧选择一个邮箱账户查看详情</p>
+          </div>
+        ) : (
+          <>
+            {/* Top Header */}
+            <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 shadow-sm z-10">
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col">
+                  <h2 className="font-bold text-slate-800 truncate max-w-[200px]">
+                    {activeAccount.displayName}
+                  </h2>
+                  <span className="text-[10px] text-slate-400">{activeAccount.email}</span>
+                </div>
+                <div className="h-8 w-[1px] bg-slate-200"></div>
+                <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100">
+                  <span className="text-xs font-medium text-slate-600">自动抓取</span>
+                  <button 
+                    onClick={() => toggleAutoRefresh(activeAccount.id)}
+                    className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${activeAccount.autoRefresh ? 'bg-green-500 shadow-inner' : 'bg-slate-300'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${activeAccount.autoRefresh ? 'translate-x-5.5' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="搜索标题或发件人..." 
+                    className="pl-9 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 w-72 transition-all shadow-inner"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <button 
+                  onClick={() => fetchMails(activeAccount.id)}
+                  className="p-2.5 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-blue-600 rounded-xl transition-all shadow-sm active:scale-95"
+                  title="手动刷新邮件库"
+                >
+                  <RefreshCw size={18} className={activeAccount.autoRefresh ? 'animate-spin-slow' : ''} />
+                </button>
+              </div>
+            </header>
+
+            {/* Email List & Preview Viewport */}
+            <div className="flex-1 flex overflow-hidden">
+              
+              {/* Mail List */}
+              <div className="w-[380px] border-r border-slate-200 bg-white overflow-y-auto">
+                {filteredMails.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                       <Inbox className="text-slate-200" size={32} />
+                    </div>
+                    <p className="text-slate-400 text-sm font-medium italic">收件箱空空如也</p>
+                  </div>
+                ) : (
+                  filteredMails.map(mail => (
+                    <div 
+                      key={mail.id}
+                      onClick={() => setSelectedMail(mail)}
+                      className={`p-5 border-b border-slate-50 cursor-pointer transition-all relative ${
+                        selectedMail?.id === mail.id ? 'bg-blue-50/70' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      {selectedMail?.id === mail.id && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-blue-600"></div>}
+                      <div className="flex justify-between items-start mb-1.5">
+                        <span className={`text-sm font-bold truncate pr-2 ${selectedMail?.id === mail.id ? 'text-blue-800' : 'text-slate-800'}`}>
+                          {mail.from}
+                        </span>
+                        <span className="text-[10px] font-medium text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 shrink-0">
+                          {mail.time}
+                        </span>
+                      </div>
+                      <h4 className={`text-sm font-semibold truncate mb-2 ${selectedMail?.id === mail.id ? 'text-blue-900' : 'text-slate-700'}`}>
+                        {mail.subject}
+                      </h4>
+                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed opacity-80">
+                        {mail.body}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Mail Detail */}
+              <div className="flex-1 bg-white overflow-y-auto">
+                {!selectedMail ? (
+                  <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                    <div className="relative">
+                      <Inbox size={64} strokeWidth={1} />
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full animate-ping"></div>
+                    </div>
+                    <p className="mt-4 font-medium text-slate-400">请选择左侧邮件进行阅读</p>
+                  </div>
+                ) : (
+                  <div className="p-10 max-w-5xl mx-auto">
+                    <div className="flex justify-between items-start mb-8">
+                      <div className="flex-1">
+                        <h2 className="text-3xl font-extrabold text-slate-800 mb-6 leading-tight">{selectedMail.subject}</h2>
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-xl shadow-lg">
+                            {selectedMail.from[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="text-base font-bold text-slate-800">{selectedMail.from}</div>
+                            <div className="text-xs text-slate-500 flex items-center gap-1">
+                              发给: <span className="font-mono">{activeAccount.email}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-semibold text-slate-400 mb-4 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                          {selectedMail.fullDate}
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                           <button className="px-5 py-2 text-sm font-semibold bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all shadow-sm">回复</button>
+                           <button className="px-5 py-2 text-sm font-semibold text-red-500 bg-red-50/50 border border-red-100 rounded-xl hover:bg-red-50 transition-all shadow-sm">彻底删除</button>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="h-[1px] bg-gradient-to-r from-transparent via-slate-200 to-transparent mb-10"></div>
+                    
+                    <div className="prose prose-slate max-w-none text-slate-700 leading-relaxed text-lg">
+                      {selectedMail.body.split('\n').map((para, i) => (
+                        <p key={i} className="mb-5">{para}</p>
+                      ))}
+                    </div>
+
+                    <div className="mt-16 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                      <div className="flex items-center gap-2 mb-4 text-slate-400 uppercase tracking-widest text-[10px] font-bold">
+                        <AlertCircle size={14} />
+                        账户元数据 (调试)
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                          <p className="text-[10px] text-slate-400 mb-1">Client ID</p>
+                          <p className="font-mono text-xs truncate font-bold text-slate-600">{activeAccount.clientId}</p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                          <p className="text-[10px] text-slate-400 mb-1">Refresh Token (截取)</p>
+                          <p className="font-mono text-xs truncate font-bold text-slate-600">{activeAccount.refreshToken.substring(0, 40)}...</p>
+                        </div>
+                      </div>
+                      {activeAccount.note && (
+                        <div className="mt-4 bg-amber-50 p-4 rounded-lg border border-amber-100 shadow-sm">
+                           <p className="text-[10px] text-amber-600 font-bold mb-1 flex items-center gap-1">
+                             <StickyNote size={12} /> 账户备注
+                           </p>
+                           <p className="text-sm text-amber-800">{activeAccount.note}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </main>
+
+      {/* --- Add Account Modal --- */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <Plus size={24} className="text-blue-600" /> 批量导入账号
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">支持大规模 IMAP 账号快速上架</p>
+              </div>
+              <button onClick={() => setShowAddModal(false)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-full transition-all shadow-sm">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-8">
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 mb-6 flex gap-4 items-start">
+                <div className="bg-blue-100 p-2 rounded-xl text-blue-600">
+                  <CheckCircle2 size={20} />
+                </div>
+                <div className="text-xs leading-relaxed text-blue-800">
+                   <strong>导入格式指南：</strong><br/>
+                   每行一个账号，严格遵循：<code className="bg-blue-100/50 px-1 rounded font-bold">邮箱----密码----client_id----refresh_token</code><br/>
+                   导入后名称默认为邮箱，您可以后续进行二次编辑。
+                </div>
+              </div>
+              <textarea 
+                className="w-full h-72 p-5 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 font-mono text-sm resize-none outline-none transition-all shadow-inner"
+                placeholder="example@outlook.com----password123----id_xxxx----token_yyyy"
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+              ></textarea>
+              <div className="mt-8 flex justify-end gap-3">
+                <button 
+                  onClick={() => setShowAddModal(false)}
+                  className="px-8 py-3 text-slate-600 hover:bg-slate-100 rounded-xl font-bold transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleAddAccounts}
+                  disabled={!bulkInput.trim()}
+                  className="px-10 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95"
+                >
+                  确认导入 {bulkInput.split('\n').filter(l => l.trim()).length} 个账号
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- Note Modal --- */}
+      {noteModalAccount && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 bg-amber-50 border-b border-amber-100 flex justify-between items-center">
+              <h3 className="font-bold text-amber-800 flex items-center gap-2">
+                <StickyNote size={18} /> 账户备注: {noteModalAccount.displayName}
+              </h3>
+            </div>
+            <div className="p-6">
+              <textarea 
+                autoFocus
+                className="w-full h-40 p-4 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-amber-500/10 focus:border-amber-400 text-sm resize-none outline-none transition-all"
+                placeholder="在此输入您的备注内容..."
+                defaultValue={noteModalAccount.note}
+                id="temp-note-area"
+              ></textarea>
+              <div className="mt-6 flex justify-end gap-3">
+                <button 
+                  onClick={() => setNoteModalAccount(null)}
+                  className="px-6 py-2 text-slate-600 hover:bg-slate-50 rounded-xl text-sm font-bold"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={() => {
+                    const val = document.getElementById('temp-note-area').value;
+                    updateNote(noteModalAccount.id, val);
+                  }}
+                  className="px-6 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold shadow-md shadow-amber-500/20 hover:bg-amber-600 transition-all active:scale-95 flex items-center gap-2"
+                >
+                  <Save size={16} /> 保存备注
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Mock Data Generators ---
+
+function generateMockMails(email) {
+  return [
+    {
+      id: Math.random(),
+      from: "Microsoft Security",
+      subject: "新的登录提醒：您的账户发生了异常登录",
+      time: "10:30",
+      fullDate: "2024年3月20日 10:30:45",
+      body: "尊敬的用户，我们注意到您的账户 " + email + " 在一个新的地理位置登录。如果这是您本人，请忽略此邮件。如果不是，请立即修改您的密码并检查您的安全设置。\n\n登录设备：Chrome on Windows\n位置：中国，上海\n时间：刚才"
+    },
+    {
+      id: Math.random(),
+      from: "GitHub Notifications",
+      subject: "[GitHub] 成功授权新 OAuth 应用 - Outlook Manager",
+      time: "昨天",
+      fullDate: "2024年3月19日 15:20:00",
+      body: "您好！您的 GitHub 账户刚刚授权了一个新的第三方应用。我们通知您是希望确保这是您本人的操作。详情请查看您的账户设置页面。\n\n应用权限：read:user, repo\n如果您对此次授权有疑问，请联系 GitHub 安全团队。"
+    },
+    {
+      id: Math.random(),
+      from: "Outlook Team",
+      subject: "欢迎使用您的新收件箱",
+      time: "3月15日",
+      fullDate: "2024年3月15日 09:00:00",
+      body: "欢迎使用 Outlook！我们为您准备了一些新功能来帮助您管理日程、联系人和邮件。探索我们的新界面，享受更高效的工作流程。\n\n您可以开始设置文件夹分类，或者开启自动回复功能。"
+    }
+  ];
+}
+
+function createMockMail(email) {
+  const subjects = ["系统通知", "会议提醒", "账户账单", "促销信息", "订阅更新", "安全警告", "报告已生成"];
+  const senders = ["Apple Support", "Amazon.com", "LinkedIn", "Netflix", "Google Work", "PayPal", "Steam"];
+  return {
+    id: Math.random(),
+    from: senders[Math.floor(Math.random() * senders.length)],
+    subject: subjects[Math.floor(Math.random() * subjects.length)] + " #" + Math.floor(Math.random() * 9000 + 1000),
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    fullDate: new Date().toLocaleString(),
+    body: "这是一封来自自动抓取任务的即时邮件。系统正在实时监控 IMAP 通道并在发现新内容时同步至此。\n\n抓取节点: HK-Cluster-02\n目标账户: " + email + "\n状态: 已成功解密"
+  };
+}
+
+export default App;

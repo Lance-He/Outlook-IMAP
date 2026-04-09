@@ -1,0 +1,12 @@
+.DS_Store
+node_modules
+frontend/dist
+backend/dist
+*.log
+.env
+.env.*
+
+data/*
+!data/messages/
+data/messages/*
+!data/messages/.gitkeep
