@@ -1,8 +1,15 @@
+export type AccountTag = {
+  id: string;
+  name: string;
+  color: "blue" | "emerald" | "amber" | "rose" | "cyan" | "slate";
+};
+
 export type Account = {
   id: string;
   email: string;
   displayName: string;
   note: string;
+  tags: AccountTag[];
   verifyStatus: string;
   runtimeStatus: string;
   pullIntervalSec: number;

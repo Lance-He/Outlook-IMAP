@@ -9,6 +9,7 @@ export type AccountRow = {
   email: string;
   display_name: string;
   note: string;
+  tags_json: string;
   password_encrypted: string | null;
   client_id: string;
   refresh_token_encrypted: string;
@@ -47,6 +48,7 @@ type SanitizedAccount = {
   email: string;
   displayName: string;
   note: string;
+  tags: AccountTag[];
   verifyStatus: string;
   runtimeStatus: string;
   pullIntervalSec: number;
@@ -75,6 +77,12 @@ type SettingsRow = {
   retry_backoff_sec: number;
 };
 
+type AccountTag = {
+  id: string;
+  name: string;
+  color: string;
+};
+
 type AppSettings = {
   pullIntervalSec: number;
   maxConcurrency: number;
@@ -97,6 +105,7 @@ database.exec(`
     email TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     note TEXT NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
     password_encrypted TEXT,
     client_id TEXT NOT NULL,
     refresh_token_encrypted TEXT NOT NULL,
@@ -155,6 +164,64 @@ database.exec(`
     retry_backoff_sec INTEGER NOT NULL
   );
 `);
+
+const mailAccountColumns = database.prepare(`PRAGMA table_info(mail_accounts)`).all() as Array<{ name: string }>;
+if (!mailAccountColumns.some((column) => column.name === "tags_json")) {
+  database.exec(`ALTER TABLE mail_accounts ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`);
+}
+
+database.prepare(`UPDATE mail_accounts SET tags_json = '[]' WHERE tags_json IS NULL OR tags_json = ''`).run();
+
+const allowedTagColors = new Set(["blue", "emerald", "amber", "rose", "cyan", "slate"]);
+
+function sanitizeTags(value: unknown): AccountTag[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const candidate = item as Record<string, unknown>;
+      const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
+      if (!name) {
+        return null;
+      }
+
+      const color =
+        typeof candidate.color === "string" && allowedTagColors.has(candidate.color)
+          ? candidate.color
+          : "blue";
+
+      const id =
+        typeof candidate.id === "string" && candidate.id.trim()
+          ? candidate.id.trim()
+          : randomUUID();
+
+      return {
+        id,
+        name: name.slice(0, 18),
+        color
+      };
+    })
+    .filter((item): item is AccountTag => Boolean(item))
+    .slice(0, 8);
+}
+
+function parseTags(tagsJson: string | null | undefined) {
+  if (!tagsJson) {
+    return [];
+  }
+
+  try {
+    return sanitizeTags(JSON.parse(tagsJson));
+  } catch {
+    return [];
+  }
+}
 
 export const db = {
   ensureDefaults() {
@@ -252,6 +319,7 @@ export const db = {
             a.email,
             a.display_name AS displayName,
             a.note,
+            a.tags_json AS tagsJson,
             a.verify_status AS verifyStatus,
             a.runtime_status AS runtimeStatus,
             a.pull_interval_sec AS pullIntervalSec,
@@ -266,11 +334,12 @@ export const db = {
           ORDER BY a.created_at DESC
         `
       )
-      .all() as Array<Omit<SanitizedAccount, "enabled"> & { enabled: number }>;
+      .all() as Array<Omit<SanitizedAccount, "enabled" | "tags"> & { enabled: number; tagsJson: string }>;
 
-    return rows.map((row) => ({
+    return rows.map(({ tagsJson, enabled, ...row }) => ({
       ...row,
-      enabled: Boolean(row.enabled)
+      tags: parseTags(tagsJson),
+      enabled: Boolean(enabled)
     }));
   },
 
@@ -286,6 +355,7 @@ export const db = {
     email: string;
     displayName: string;
     note?: string;
+    tags?: AccountTag[];
     passwordEncrypted: string | null;
     clientId: string;
     refreshTokenEncrypted: string;
@@ -301,11 +371,11 @@ export const db = {
     database.prepare(
       `
         INSERT INTO mail_accounts (
-          id, email, display_name, note, password_encrypted, client_id,
+          id, email, display_name, note, tags_json, password_encrypted, client_id,
           refresh_token_encrypted, tenant, verify_status, runtime_status,
           pull_interval_sec, enabled, created_at, updated_at
         ) VALUES (
-          @id, @email, @display_name, @note, @password_encrypted, @client_id,
+          @id, @email, @display_name, @note, @tags_json, @password_encrypted, @client_id,
           @refresh_token_encrypted, @tenant, @verify_status, @runtime_status,
           @pull_interval_sec, @enabled, @created_at, @updated_at
         )
@@ -315,6 +385,7 @@ export const db = {
       email: input.email,
       display_name: input.displayName,
       note: input.note ?? "",
+      tags_json: JSON.stringify(sanitizeTags(input.tags ?? [])),
       password_encrypted: input.passwordEncrypted,
       client_id: input.clientId,
       refresh_token_encrypted: input.refreshTokenEncrypted,
@@ -330,13 +401,16 @@ export const db = {
     return id;
   },
 
-  updateAccount(accountId: string, patch: { displayName?: string; note?: string }) {
+  updateAccount(accountId: string, patch: { displayName?: string; note?: string; tags?: AccountTag[] }) {
     const current = this.getAccountById(accountId);
     if (!current) return null;
 
     const next = {
       display_name: patch.displayName ?? current.display_name,
       note: patch.note ?? current.note,
+      tags_json: Object.prototype.hasOwnProperty.call(patch, "tags")
+        ? JSON.stringify(sanitizeTags(patch.tags ?? []))
+        : current.tags_json,
       pull_interval_sec: current.pull_interval_sec,
       next_sync_at: current.next_sync_at,
       updated_at: new Date().toISOString(),
@@ -348,6 +422,7 @@ export const db = {
         UPDATE mail_accounts
         SET display_name = @display_name,
             note = @note,
+            tags_json = @tags_json,
             pull_interval_sec = @pull_interval_sec,
             next_sync_at = @next_sync_at,
             updated_at = @updated_at

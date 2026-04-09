@@ -13,15 +13,60 @@ import {
   Search,
   Edit2,
   StickyNote,
+  Tag,
   Save,
   X,
   Trash2,
   RadioTower
 } from "lucide-react";
 import { api } from "./api";
-import type { Account, AppEvent, MessageDetail, MessageSummary, Settings as AppSettings } from "./types";
+import type { Account, AccountTag, AppEvent, MessageDetail, MessageSummary, Settings as AppSettings } from "./types";
 
 const intervalOptions = [5, 10, 30, 60];
+
+const tagPalette: Array<{
+  color: AccountTag["color"];
+  label: string;
+  pillClass: string;
+  swatchClass: string;
+}> = [
+  {
+    color: "blue",
+    label: "蓝色",
+    pillClass: "border-blue-200 bg-blue-50 text-blue-700",
+    swatchClass: "bg-blue-500"
+  },
+  {
+    color: "emerald",
+    label: "绿色",
+    pillClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    swatchClass: "bg-emerald-500"
+  },
+  {
+    color: "amber",
+    label: "黄色",
+    pillClass: "border-amber-200 bg-amber-50 text-amber-700",
+    swatchClass: "bg-amber-500"
+  },
+  {
+    color: "rose",
+    label: "红色",
+    pillClass: "border-rose-200 bg-rose-50 text-rose-700",
+    swatchClass: "bg-rose-500"
+  },
+  {
+    color: "cyan",
+    label: "青色",
+    pillClass: "border-cyan-200 bg-cyan-50 text-cyan-700",
+    swatchClass: "bg-cyan-500"
+  },
+  {
+    color: "slate",
+    label: "灰色",
+    pillClass: "border-slate-200 bg-slate-100 text-slate-600",
+    swatchClass: "bg-slate-500"
+  }
+];
 
 type ToastTone = "error" | "success" | "info";
 
@@ -29,6 +74,25 @@ type ToastState = {
   message: string;
   tone: ToastTone;
 };
+
+function createTagId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `tag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getTagTheme(color: AccountTag["color"]) {
+  return tagPalette.find((item) => item.color === color) ?? tagPalette[0];
+}
+
+function getPreviewTags(tags: AccountTag[]) {
+  return {
+    visible: tags.slice(0, 2),
+    hiddenCount: Math.max(tags.length - 2, 0)
+  };
+}
 
 function isImportingAccount(account: Account) {
   return account.runtimeStatus === "导入中";
@@ -86,6 +150,10 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [noteModalAccount, setNoteModalAccount] = useState<Account | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [tagModalAccount, setTagModalAccount] = useState<Account | null>(null);
+  const [tagDrafts, setTagDrafts] = useState<AccountTag[]>([]);
+  const [tagNameDraft, setTagNameDraft] = useState("");
+  const [tagColorDraft, setTagColorDraft] = useState<AccountTag["color"]>("blue");
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [tempName, setTempName] = useState("");
   const [messages, setMessages] = useState<MessageSummary[]>([]);
@@ -365,6 +433,13 @@ const App = () => {
     setTempName(account.displayName);
   };
 
+  const openTagModal = (account: Account) => {
+    setTagModalAccount(account);
+    setTagDrafts(account.tags || []);
+    setTagNameDraft("");
+    setTagColorDraft("blue");
+  };
+
   const saveName = async (accountId: string) => {
     const currentAccount = accounts.find((account) => account.id === accountId);
 
@@ -394,6 +469,47 @@ const App = () => {
       setNoteModalAccount(null);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "保存备注失败");
+    }
+  };
+
+  const addTagDraft = () => {
+    const nextName = tagNameDraft.trim();
+    if (!nextName) {
+      showToast("请输入标签名称");
+      return;
+    }
+
+    const duplicated = tagDrafts.some((tag) => tag.name.toLowerCase() === nextName.toLowerCase());
+    if (duplicated) {
+      showToast("该标签已存在");
+      return;
+    }
+
+    setTagDrafts((current) => [
+      ...current,
+      {
+        id: createTagId(),
+        name: nextName,
+        color: tagColorDraft
+      }
+    ]);
+    setTagNameDraft("");
+  };
+
+  const removeTagDraft = (tagId: string) => {
+    setTagDrafts((current) => current.filter((tag) => tag.id !== tagId));
+  };
+
+  const saveTags = async (accountId: string) => {
+    try {
+      await api.updateAccount(accountId, {
+        tags: tagDrafts
+      });
+      await loadAccounts(accountId);
+      setTagModalAccount(null);
+      showToast("标签已保存", "success");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "保存标签失败");
     }
   };
 
@@ -503,6 +619,50 @@ const App = () => {
                       </div>
                     )}
                     <div className="mt-0.5 truncate text-[10px] text-slate-400">{acc.email}</div>
+                    <div
+                      className="mt-2 flex min-h-6 flex-wrap items-center gap-1.5"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        openTagModal(acc);
+                      }}
+                    >
+                      {(() => {
+                        const { visible, hiddenCount } = getPreviewTags(acc.tags || []);
+
+                        if (visible.length === 0) {
+                          return (
+                            <button
+                              className="rounded-full border border-dashed border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-400 transition-all hover:border-blue-200 hover:text-blue-600"
+                            >
+                              + 添加标签
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <>
+                            {visible.map((tag) => (
+                              <span
+                                key={tag.id}
+                                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${getTagTheme(tag.color).pillClass}`}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                            {hiddenCount > 0 ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+                                +{hiddenCount}
+                              </span>
+                            ) : null}
+                            <button
+                              className="rounded-full border border-dashed border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-400 transition-all hover:border-blue-200 hover:text-blue-600"
+                            >
+                              + 标签
+                            </button>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1">
@@ -780,6 +940,23 @@ const App = () => {
                           <p className="text-sm text-amber-800">{activeAccount.note}</p>
                         </div>
                       ) : null}
+                      {activeAccount.tags.length > 0 ? (
+                        <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                          <p className="mb-2 flex items-center gap-1 text-[10px] font-bold text-slate-500">
+                            <Tag size={12} /> 账户标签
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            {activeAccount.tags.map((tag) => (
+                              <span
+                                key={tag.id}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold ${getTagTheme(tag.color).pillClass}`}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -874,6 +1051,114 @@ const App = () => {
                   className="flex items-center gap-2 rounded-xl bg-amber-500 px-6 py-2 text-sm font-bold text-white shadow-md shadow-amber-500/20 transition-all active:scale-95 hover:bg-amber-600"
                 >
                   <Save size={16} /> 保存备注
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tagModalAccount ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-md">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-blue-100 bg-blue-50 px-6 py-4">
+              <h3 className="flex items-center gap-2 font-bold text-blue-800">
+                <Tag size={18} /> 标签管理: {tagModalAccount.displayName}
+              </h3>
+              <button
+                onClick={() => setTagModalAccount(null)}
+                className="rounded-full p-2 text-blue-300 transition-all hover:bg-white hover:text-blue-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500">新增标签</label>
+                <div className="mt-2 flex gap-3">
+                  <input
+                    value={tagNameDraft}
+                    onChange={(event) => setTagNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addTagDraft();
+                      }
+                    }}
+                    className="flex-1 rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="例如：重点账号 / 客户 / 测试"
+                  />
+                  <button
+                    onClick={addTagDraft}
+                    className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-md shadow-blue-500/20 transition-all active:scale-95 hover:bg-blue-700"
+                  >
+                    添加
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500">标签颜色</label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {tagPalette.map((item) => {
+                    const selected = item.color === tagColorDraft;
+                    return (
+                      <button
+                        key={item.color}
+                        onClick={() => setTagColorDraft(item.color)}
+                        className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-all ${
+                          selected
+                            ? `${item.pillClass} ring-2 ring-blue-200`
+                            : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className={`h-2.5 w-2.5 rounded-full ${item.swatchClass}`} />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-xs font-semibold text-slate-500">当前标签</div>
+                {tagDrafts.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-400">
+                    还没有标签，先添加一个吧
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {tagDrafts.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold ${getTagTheme(tag.color).pillClass}`}
+                      >
+                        <span>{tag.name}</span>
+                        <button
+                          onClick={() => removeTagDraft(tag.id)}
+                          className="rounded-full p-0.5 text-current/70 transition-all hover:bg-white/70 hover:text-current"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setTagModalAccount(null)}
+                  className="rounded-xl px-6 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => void saveTags(tagModalAccount.id)}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-6 py-2 text-sm font-bold text-white shadow-md shadow-blue-500/20 transition-all active:scale-95 hover:bg-blue-700"
+                >
+                  <Save size={16} /> 保存标签
                 </button>
               </div>
             </div>

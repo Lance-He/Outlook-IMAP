@@ -1,5 +1,6 @@
 import type {
   Account,
+  AccountTag,
   ImportResult,
   MessageDetail,
   MessageSummary,
@@ -68,6 +69,7 @@ export const api = {
     payload: {
       displayName?: string;
       note?: string;
+      tags?: AccountTag[];
     }
   ) {
     return requestJson<{ success: boolean }>(`/api/accounts/${accountId}`, {

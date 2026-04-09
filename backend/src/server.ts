@@ -76,11 +76,23 @@ export async function buildServer() {
     const body = request.body as {
       displayName?: string;
       note?: string;
+      tags?: Array<{
+        id?: string;
+        name?: string;
+        color?: string;
+      }>;
     };
 
     const updated = db.updateAccount(params.id, {
       displayName: body.displayName,
-      note: body.note
+      note: body.note,
+      tags: body.tags
+        ?.filter((tag) => tag && typeof tag.name === "string")
+        .map((tag) => ({
+          id: tag.id || "",
+          name: tag.name || "",
+          color: tag.color || "blue"
+        }))
     });
 
     if (!updated) {
